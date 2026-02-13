@@ -13,15 +13,19 @@ const RECORDING_DURATION_MS = config.mode === 'cloud'
   : config.local.recordingIntervalMs;
 
 type WorkerResponse =
-  | { type: 'loading'; progress: number }
+  | { type: 'loading'; file: string; progress: number; loaded?: number; total?: number }
   | { type: 'ready'; backend: string }
   | { type: 'partial'; text: string }
   | { type: 'final'; text: string }
   | { type: 'error'; message: string };
 
+interface LoadingProgress {
+  [filename: string]: number;
+}
+
 interface UseWhisperReturn {
   isLoading: boolean;
-  loadingProgress: number;
+  loadingProgress: LoadingProgress;
   isReady: boolean;
   isRecording: boolean;
   partialText: string;
@@ -34,7 +38,7 @@ interface UseWhisperReturn {
 
 export function useWhisper(): UseWhisperReturn {
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState<LoadingProgress>({});
   const [isReady, setIsReady] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [partialText, setPartialText] = useState('');
@@ -57,7 +61,10 @@ export function useWhisper(): UseWhisperReturn {
 
       switch (data.type) {
         case 'loading':
-          setLoadingProgress(data.progress);
+          setLoadingProgress(prev => ({
+            ...prev,
+            [data.file]: data.progress,
+          }));
           break;
         case 'ready':
           setIsLoading(false);

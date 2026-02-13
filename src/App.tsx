@@ -29,18 +29,43 @@ function App() {
   }
 
   if (isLoading) {
+    const encoderDecoderFiles = Object.entries(loadingProgress).filter(([filename]) => 
+      filename.includes('encoder') || filename.includes('decoder')
+    );
+    const overallProgress = encoderDecoderFiles.length > 0
+      ? encoderDecoderFiles.reduce((sum, [, progress]) => sum + progress, 0) / encoderDecoderFiles.length
+      : 0;
+
     return (
       <div className="container">
         <div className="loading-container">
-          <div className="loading-text">
-            Loading model... {Math.round(loadingProgress)}%
+          <div className="loading-text">Loading model...</div>
+          
+          <div className="progress-list">
+            {encoderDecoderFiles.map(([filename, progress]) => {
+              const label = filename.includes('encoder') ? 'Encoder' : 'Decoder';
+              return (
+                <div key={filename} className="progress-item">
+                  <div className="progress-label">
+                    <span>{label}</span>
+                    <span>{Math.round(progress)}%</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${loadingProgress}%` }}
-            />
-          </div>
+
+          {encoderDecoderFiles.length > 0 && (
+            <div className="overall-progress">
+              Overall: {Math.round(overallProgress)}%
+            </div>
+          )}
         </div>
       </div>
     );

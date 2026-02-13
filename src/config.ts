@@ -85,8 +85,8 @@ export const config = {
   },
 
   local: {
-    model: 'Xenova/whisper-medium',
-    dtype: 'fp32' as 'fp32' | 'fp16' | 'q8' | 'q4' | 'int8' | 'uint8' | 'auto',
+    model: 'onnx-community/whisper-small',
+    dtype: 'fp16' as 'fp32' | 'fp16' | 'q8' | 'q4' | 'int8' | 'uint8' | 'auto',
     recordingIntervalMs: 2000,
   },
 };

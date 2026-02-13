@@ -11,7 +11,7 @@ type WorkerMessage =
   | { type: 'transcribe'; audio: Float32Array };
 
 type WorkerResponse =
-  | { type: 'loading'; progress: number }
+  | { type: 'loading'; file: string; progress: number; loaded?: number; total?: number }
   | { type: 'ready'; backend: string }
   | { type: 'partial'; text: string }
   | { type: 'final'; text: string }
@@ -48,9 +48,15 @@ async function loadLocalModel(model: string, requestedDtype: DType = 'auto'): Pr
     {
       device,
       dtype,
-      progress_callback: (progress: { progress?: number; status?: string }) => {
-        if (progress.progress !== undefined) {
-          self.postMessage({ type: 'loading', progress: progress.progress } satisfies WorkerResponse);
+      progress_callback: (progress: { progress?: number; status?: string; file?: string; loaded?: number; total?: number }) => {
+        if (progress.progress !== undefined && progress.file) {
+          self.postMessage({ 
+            type: 'loading', 
+            file: progress.file,
+            progress: progress.progress,
+            loaded: progress.loaded,
+            total: progress.total,
+          } satisfies WorkerResponse);
         }
       },
     }
