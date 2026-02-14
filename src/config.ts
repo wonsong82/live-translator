@@ -76,7 +76,7 @@
  */
 
 export const config = {
-  mode: 'local' as 'cloud' | 'local',
+  mode: 'cloud' as 'cloud' | 'local',
 
   cloud: {
     apiKey: import.meta.env.VITE_OPENAI_API_KEY as string || '',

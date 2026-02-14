@@ -1,5 +1,6 @@
 import './App.css';
 import { useWhisper } from './hooks/useWhisper';
+import { config } from './config';
 
 function App() {
   const {
@@ -75,11 +76,9 @@ function App() {
     return (
       <div className="container">
         <div className="ready-container">
-          {backend && (
-            <div className="backend-badge">
-              {backend === 'webgpu' ? 'WebGPU Accelerated' : 'WASM'}
-            </div>
-          )}
+          <div className="backend-badge">
+            {config.mode === 'cloud' ? 'Cloud (OpenAI)' : backend === 'webgpu' ? 'WebGPU' : 'WASM'}
+          </div>
           <div className="ready-text">Speak Korean, see English</div>
           <button className="start-button" onClick={startRecording}>
             Start

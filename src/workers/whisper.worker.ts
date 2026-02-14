@@ -117,6 +117,10 @@ function float32ToWav(samples: Float32Array, sampleRate: number): Blob {
 }
 
 async function transcribeCloud(audio: Float32Array): Promise<void> {
+  const energy = getAudioEnergy(audio);
+  if (energy < SILENCE_THRESHOLD) return;
+  if (!hasSpeechActivity(audio)) return;
+
   try {
     const wavBlob = float32ToWav(audio, 16000);
     const formData = new FormData();
@@ -136,7 +140,10 @@ async function transcribeCloud(audio: Float32Array): Promise<void> {
     }
 
     const result = await response.json();
-    self.postMessage({ type: 'final', text: result.text || '' } satisfies WorkerResponse);
+    const finalText = filterHallucinations(result.text || '');
+    if (finalText) {
+      self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Cloud transcription failed';
     self.postMessage({ type: 'error', message } satisfies WorkerResponse);
@@ -152,52 +159,48 @@ function getAudioEnergy(audio: Float32Array): number {
 }
 
 const SILENCE_THRESHOLD = 0.01;
+const SPEECH_ENERGY_THRESHOLD = 0.04;
+
+const recentOutputs: string[] = [];
+const MAX_RECENT = 10;
+
+function hasSpeechActivity(audio: Float32Array): boolean {
+  const frameSize = 1600;
+  let speechFrames = 0;
+  const totalFrames = Math.floor(audio.length / frameSize);
+
+  for (let i = 0; i < totalFrames; i++) {
+    let sum = 0;
+    for (let j = 0; j < frameSize; j++) {
+      const sample = audio[i * frameSize + j];
+      sum += sample * sample;
+    }
+    const rms = Math.sqrt(sum / frameSize);
+    if (rms > SPEECH_ENERGY_THRESHOLD) speechFrames++;
+  }
+
+  return speechFrames >= 2;
+}
 
 function filterHallucinations(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return '';
-  
-  const hallucinations = [
-    /^\(.*\)$/,
-    /^\[.*\]$/,
-    /^i'?m sorry/i,
-    /^sorry/i,
-    /^thank you/i,
-    /^thanks for watching/i,
-    /^please subscribe/i,
-    /^see you/i,
-    /^bye/i,
-    /^goodbye/i,
-    /^hello/i,
-    /^hey/i,
-    /^hi$/i,
-    /^okay\.?$/i,
-    /^ok\.?$/i,
-    /^yes\.?$/i,
-    /^no\.?$/i,
-    /^yeah\.?$/i,
-    /^hmm+\.?$/i,
-    /^uh+\.?$/i,
-    /^ah+\.?$/i,
-    /^oh+\.?$/i,
-    /^\.+$/,
-    /^,+$/,
-    /^!+$/,
-    /^\?+$/,
-    /^-+$/,
-    /^\.\.\.$/,
-    /^music$/i,
-    /^applause$/i,
-    /^laughter$/i,
-    /^silence$/i,
-  ];
-  
-  for (const pattern of hallucinations) {
-    if (pattern.test(trimmed)) return '';
-  }
-  
-  if (trimmed.length < 3) return '';
-  
+
+  if (/^[\s.,!?\-…:;'"]+$/.test(trimmed)) return '';
+  if (/^\(.*\)$/.test(trimmed) || /^\[.*\]$/.test(trimmed)) return '';
+
+  const cleaned = trimmed.replace(/[.,!?…\-:;'"]+$/, '').replace(/^[.,!?…\-:;'"]+/, '').trim().toLowerCase();
+  if (!cleaned || cleaned.length < 3) return '';
+
+  const words = cleaned.split(/\s+/);
+  if (words.length <= 4 && /^[a-z\s'\-]+$/.test(cleaned)) return '';
+
+  const duplicateCount = recentOutputs.filter(o => o === cleaned).length;
+  if (duplicateCount >= 1) return '';
+
+  recentOutputs.push(cleaned);
+  if (recentOutputs.length > MAX_RECENT) recentOutputs.shift();
+
   return trimmed;
 }
 
@@ -208,9 +211,8 @@ async function transcribeLocal(audio: Float32Array): Promise<void> {
   }
 
   const energy = getAudioEnergy(audio);
-  if (energy < SILENCE_THRESHOLD) {
-    return;
-  }
+  if (energy < SILENCE_THRESHOLD) return;
+  if (!hasSpeechActivity(audio)) return;
 
   try {
     const result = await transcriber(audio, {
