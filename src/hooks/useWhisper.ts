@@ -8,8 +8,13 @@ import {
 } from '../utils/audio';
 import { config } from '../config';
 
-const RECORDING_DURATION_MS = config.mode === 'cloud' 
-  ? config.cloud.recordingIntervalMs 
+const isSentenceBuffered =
+  config.mode === 'cloud' &&
+  config.cloud.pipeline === 'transcribe-translate' &&
+  config.cloud.sentenceBuffered;
+
+const RECORDING_DURATION_MS = config.mode === 'cloud'
+  ? config.cloud.recordingIntervalMs
   : config.local.recordingIntervalMs;
 
 type WorkerResponse =
@@ -17,6 +22,8 @@ type WorkerResponse =
   | { type: 'ready'; backend: string }
   | { type: 'partial'; text: string }
   | { type: 'final'; text: string }
+  | { type: 'transcript-update'; sentences: string[]; pending: string }
+  | { type: 'translation-update'; text: string }
   | { type: 'error'; message: string };
 
 interface LoadingProgress {
@@ -32,6 +39,10 @@ interface UseWhisperReturn {
   textHistory: string[];
   error: string | null;
   backend: string | null;
+  sentenceBuffered: boolean;
+  transcriptSentences: string[];
+  transcriptPending: string;
+  translations: string[];
   startRecording: () => Promise<void>;
   stopRecording: () => void;
 }
@@ -45,6 +56,10 @@ export function useWhisper(): UseWhisperReturn {
   const [textHistory, setTextHistory] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [backend, setBackend] = useState<string | null>(null);
+
+  const [transcriptSentences, setTranscriptSentences] = useState<string[]>([]);
+  const [transcriptPending, setTranscriptPending] = useState('');
+  const [translations, setTranslations] = useState<string[]>([]);
 
   const workerRef = useRef<Worker | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -78,6 +93,13 @@ export function useWhisper(): UseWhisperReturn {
           setTextHistory(prev => [...prev.slice(-9), data.text]);
           setPartialText('');
           break;
+        case 'transcript-update':
+          setTranscriptSentences(data.sentences);
+          setTranscriptPending(data.pending);
+          break;
+        case 'translation-update':
+          setTranslations(prev => [...prev.slice(-9), data.text]);
+          break;
         case 'error':
           setError(data.message);
           break;
@@ -100,6 +122,8 @@ export function useWhisper(): UseWhisperReturn {
       cloudPipeline: config.cloud.pipeline,
       cloudModel: config.cloud.model,
       cloudTranslateModel: config.cloud.translateModel,
+      sentenceBuffered: isSentenceBuffered,
+      sentenceModel: config.cloud.sentenceModel,
     });
 
     return () => {
@@ -162,6 +186,9 @@ export function useWhisper(): UseWhisperReturn {
     setError(null);
     setPartialText('');
     setTextHistory([]);
+    setTranscriptSentences([]);
+    setTranscriptPending('');
+    setTranslations([]);
 
     try {
       const stream = await startMicrophoneCapture();
@@ -212,6 +239,10 @@ export function useWhisper(): UseWhisperReturn {
     textHistory,
     error,
     backend,
+    sentenceBuffered: isSentenceBuffered,
+    transcriptSentences,
+    transcriptPending,
+    translations,
     startRecording,
     stopRecording,
   };

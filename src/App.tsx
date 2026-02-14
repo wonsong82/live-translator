@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import './App.css';
 import { useWhisper } from './hooks/useWhisper';
 import { config } from './config';
@@ -12,9 +13,15 @@ function App() {
     textHistory,
     error,
     backend,
+    sentenceBuffered,
+    transcriptSentences,
+    transcriptPending,
+    translations,
     startRecording,
     stopRecording,
   } = useWhisper();
+
+  const [showTranscript, setShowTranscript] = useState(true);
 
   if (error && !isRecording) {
     return (
@@ -85,6 +92,80 @@ function App() {
           <button className="start-button" onClick={startRecording}>
             Start
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isRecording && sentenceBuffered) {
+    return (
+      <div className="container">
+        <div className="recording-container">
+          <div className="recording-header">
+            <div className="recording-indicator">
+              <div className="recording-dot" />
+              <span>Recording</span>
+            </div>
+            <button
+              className="toggle-transcript-button"
+              onClick={() => setShowTranscript(prev => !prev)}
+            >
+              {showTranscript ? 'Hide Korean' : 'Show Korean'}
+            </button>
+          </div>
+
+          <div className={`dual-pane ${showTranscript ? '' : 'single-pane'}`}>
+            {showTranscript && (
+              <div className="pane transcript-pane">
+                <div className="pane-label">Korean</div>
+                <div className="pane-content">
+                  {transcriptSentences.slice(-10).map((sentence, index, arr) => (
+                    <div
+                      key={index}
+                      className="sentence-line"
+                      style={{ opacity: Math.max(0.3, (index + 1) / arr.length) }}
+                    >
+                      {sentence}
+                    </div>
+                  ))}
+                  {transcriptPending && (
+                    <div className="sentence-line">
+                      <span className="pending-text">{transcriptPending}</span>
+                    </div>
+                  )}
+                  {transcriptSentences.length === 0 && !transcriptPending && (
+                    <div className="partial-text">Listening...</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="pane translation-pane">
+              <div className="pane-label">English</div>
+              <div className="pane-content">
+                {translations.map((text, index) => (
+                  <div
+                    key={index}
+                    className="history-line"
+                    style={{ opacity: Math.max(0.3, (index + 1) / translations.length) }}
+                  >
+                    {text}
+                  </div>
+                ))}
+                {translations.length === 0 && (
+                  <div className="partial-text">Waiting for sentences...</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {error && <div className="error-text">{error}</div>}
+
+          <div className="stop-button-container">
+            <button className="stop-button" onClick={stopRecording}>
+              Stop
+            </button>
+          </div>
         </div>
       </div>
     );

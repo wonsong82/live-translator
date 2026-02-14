@@ -100,6 +100,23 @@ export const config = {
     pipeline: 'transcribe-translate' as 'direct' | 'transcribe-translate',
     translateModel: 'gpt-4.1' as string,
     recordingIntervalMs: 2000,
+
+    /**
+     * Sentence-buffered mode (only works with 'transcribe-translate' pipeline)
+     *
+     * When enabled:
+     * - Accumulates Korean transcript in a buffer
+     * - Uses LLM to detect complete sentences vs incomplete fragments
+     * - Sends only complete sentences for translation (much better quality)
+     * - Shows dual-pane UI: left = Korean transcript, right = English translation
+     *
+     * When disabled:
+     * - Current behavior: each chunk is independently transcribed + translated
+     *
+     * Tip: Set recordingIntervalMs to 1000ms for faster feedback in this mode
+     */
+    sentenceBuffered: true,
+    sentenceModel: 'gpt-4.1' as string,
   },
 
   local: {

@@ -195,3 +195,108 @@
 .retry-button:hover {
   background-color: #444;
 }
+
+.recording-header {
+  position: absolute;
+  top: 2rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.toggle-transcript-button {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  background-color: #222;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-transcript-button:hover {
+  background-color: #333;
+  color: #ccc;
+}
+
+.dual-pane {
+  display: flex;
+  gap: 2rem;
+  width: 90%;
+  height: 70vh;
+  align-items: stretch;
+}
+
+.dual-pane.single-pane {
+  justify-content: center;
+}
+
+.pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.single-pane .pane {
+  max-width: 80%;
+}
+
+.pane-label {
+  font-size: 0.75rem;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #222;
+}
+
+.pane-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.pane-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pane-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pane-content::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+.sentence-line {
+  font-size: 1.5rem;
+  line-height: 1.4;
+  color: #ffffff;
+  transition: opacity 0.3s ease;
+}
+
+.pending-text {
+  font-size: 1.5rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.35);
+  font-style: italic;
+  display: inline;
+}
+
+.transcript-pane {
+  border-right: 1px solid #1a1a1a;
+  padding-right: 2rem;
+}
+
+.translation-pane {
+  padding-left: 0rem;
+}
