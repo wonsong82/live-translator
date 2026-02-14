@@ -10,7 +10,7 @@ type Task = 'transcribe' | 'translate';
 type CloudPipeline = 'direct' | 'transcribe-translate';
 
 type WorkerMessage =
-  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string }
+  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string; sentenceBuffered?: boolean; sentenceModel?: string }
   | { type: 'transcribe'; audio: Float32Array };
 
 type WorkerResponse =
@@ -18,6 +18,8 @@ type WorkerResponse =
   | { type: 'ready'; backend: string }
   | { type: 'partial'; text: string }
   | { type: 'final'; text: string }
+  | { type: 'transcript-update'; sentences: string[]; pending: string }
+  | { type: 'translation-update'; text: string }
   | { type: 'error'; message: string };
 
 let transcriber: Transcriber | null = null;
@@ -27,6 +29,11 @@ let currentCloudPipeline: CloudPipeline = 'direct';
 let currentCloudModel = 'whisper-1';
 let currentCloudTranslateModel = 'gpt-4o-mini';
 let cloudApiKey = '';
+let sentenceBufferedEnabled = false;
+let sentenceModelName = 'gpt-4.1-mini';
+
+let sentenceBuffer = '';
+let completedSentences: string[] = [];
 
 async function detectWebGPU(): Promise<boolean> {
   if (!navigator.gpu) return false;
@@ -148,7 +155,7 @@ async function cloudDirect(audio: Float32Array): Promise<void> {
   }
 }
 
-async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
+async function transcribeAudioToKorean(audio: Float32Array): Promise<string> {
   const wavBlob = float32ToWav(audio, 16000);
   const formData = new FormData();
   formData.append('file', wavBlob, 'audio.wav');
@@ -156,22 +163,23 @@ async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
   formData.append('response_format', 'json');
   formData.append('language', 'ko');
 
-  const transcribeResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${cloudApiKey}` },
     body: formData,
   });
 
-  if (!transcribeResponse.ok) {
-    const error = await transcribeResponse.json().catch(() => ({}));
-    throw new Error(error.error?.message || `Transcribe error: ${transcribeResponse.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Transcribe error: ${response.status}`);
   }
 
-  const transcribeResult = await transcribeResponse.json();
-  const koreanText = transcribeResult.text || '';
-  if (!koreanText.trim()) return;
+  const result = await response.json();
+  return result.text || '';
+}
 
-  const translateResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+async function translateKoreanToEnglish(koreanText: string): Promise<string> {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${cloudApiKey}`,
@@ -188,16 +196,106 @@ async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
     }),
   });
 
-  if (!translateResponse.ok) {
-    const error = await translateResponse.json().catch(() => ({}));
-    throw new Error(error.error?.message || `Translate error: ${translateResponse.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Translate error: ${response.status}`);
   }
 
-  const translateResult = await translateResponse.json();
-  const englishText = translateResult.choices?.[0]?.message?.content?.trim() || '';
+  const result = await response.json();
+  return result.choices?.[0]?.message?.content?.trim() || '';
+}
+
+interface SentenceSplit {
+  sentences: string[];
+  pending: string;
+}
+
+async function detectSentenceBoundaries(text: string): Promise<SentenceSplit> {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cloudApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: sentenceModelName,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a Korean sentence boundary detector. Given Korean text from a live speech transcription, split it into complete sentences and any remaining incomplete fragment.
+
+Rules:
+- A complete sentence ends with a natural sentence-ending pattern (e.g., 다, 요, 죠, 까, 네, 지, 야, etc.)
+- Maintain the EXACT original text — do not modify, correct, or rephrase anything
+- The "pending" field should contain text that is not yet a complete sentence
+- If the entire text is incomplete, return it all as "pending"
+- Preserve chronological order
+
+Respond with ONLY valid JSON: {"sentences": ["완전한 문장1", "완전한 문장2"], "pending": "미완성 부분"}`
+        },
+        { role: 'user', content: text },
+      ],
+      temperature: 0,
+      max_tokens: 1000,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Sentence detection error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  const content = result.choices?.[0]?.message?.content?.trim() || '{}';
+
+  try {
+    const parsed = JSON.parse(content) as { sentences?: string[]; pending?: string };
+    return {
+      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+      pending: typeof parsed.pending === 'string' ? parsed.pending : '',
+    };
+  } catch {
+    return { sentences: [], pending: text };
+  }
+}
+
+async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
+  const koreanText = await transcribeAudioToKorean(audio);
+  if (!koreanText.trim()) return;
+
+  const englishText = await translateKoreanToEnglish(koreanText);
   const finalText = filterHallucinations(englishText);
   if (finalText) {
     self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
+  }
+}
+
+async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
+  const koreanText = await transcribeAudioToKorean(audio);
+  if (!koreanText.trim()) return;
+
+  sentenceBuffer = sentenceBuffer ? sentenceBuffer + ' ' + koreanText.trim() : koreanText.trim();
+
+  const { sentences, pending } = await detectSentenceBoundaries(sentenceBuffer);
+
+  if (sentences.length > 0) {
+    completedSentences.push(...sentences);
+  }
+  sentenceBuffer = pending;
+
+  self.postMessage({
+    type: 'transcript-update',
+    sentences: completedSentences.slice(),
+    pending: sentenceBuffer,
+  } satisfies WorkerResponse);
+
+  for (const sentence of sentences) {
+    const englishText = await translateKoreanToEnglish(sentence);
+    const filtered = filterHallucinations(englishText);
+    if (filtered) {
+      self.postMessage({ type: 'translation-update', text: filtered } satisfies WorkerResponse);
+    }
   }
 }
 
@@ -207,7 +305,9 @@ async function transcribeCloud(audio: Float32Array): Promise<void> {
   if (!hasSpeechActivity(audio)) return;
 
   try {
-    if (currentCloudPipeline === 'transcribe-translate') {
+    if (currentCloudPipeline === 'transcribe-translate' && sentenceBufferedEnabled) {
+      await cloudSentenceBuffered(audio);
+    } else if (currentCloudPipeline === 'transcribe-translate') {
       await cloudTranscribeTranslate(audio);
     } else {
       await cloudDirect(audio);
@@ -321,12 +421,16 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type } = event.data;
 
   if (type === 'load') {
-    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel } = event.data;
+    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel, sentenceBuffered, sentenceModel } = event.data;
     currentMode = mode;
     currentTask = task || 'translate';
     currentCloudPipeline = cloudPipeline || 'direct';
     currentCloudModel = cloudModel || 'whisper-1';
     currentCloudTranslateModel = cloudTranslateModel || 'gpt-4o-mini';
+    sentenceBufferedEnabled = sentenceBuffered || false;
+    sentenceModelName = sentenceModel || 'gpt-4.1-mini';
+    sentenceBuffer = '';
+    completedSentences = [];
 
     try {
       if (mode === 'cloud') {
