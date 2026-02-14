@@ -6,8 +6,11 @@ type Transcriber = (audio: Float32Array, options?: Record<string, unknown>) => P
 
 type DType = 'fp32' | 'fp16' | 'q8' | 'q4' | 'int8' | 'uint8' | 'auto';
 
+type Task = 'transcribe' | 'translate';
+type CloudPipeline = 'direct' | 'transcribe-translate';
+
 type WorkerMessage =
-  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; dtype?: DType }
+  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string }
   | { type: 'transcribe'; audio: Float32Array };
 
 type WorkerResponse =
@@ -19,6 +22,10 @@ type WorkerResponse =
 
 let transcriber: Transcriber | null = null;
 let currentMode: 'cloud' | 'local' = 'local';
+let currentTask: Task = 'translate';
+let currentCloudPipeline: CloudPipeline = 'direct';
+let currentCloudModel = 'whisper-1';
+let currentCloudTranslateModel = 'gpt-4o-mini';
 let cloudApiKey = '';
 
 async function detectWebGPU(): Promise<boolean> {
@@ -116,33 +123,94 @@ function float32ToWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
+async function cloudDirect(audio: Float32Array): Promise<void> {
+  const wavBlob = float32ToWav(audio, 16000);
+  const formData = new FormData();
+  formData.append('file', wavBlob, 'audio.wav');
+  formData.append('model', currentCloudModel);
+    formData.append('response_format', 'json');
+
+  const response = await fetch('https://api.openai.com/v1/audio/translations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${cloudApiKey}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  const finalText = filterHallucinations(result.text || '');
+  if (finalText) {
+    self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
+  }
+}
+
+async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
+  const wavBlob = float32ToWav(audio, 16000);
+  const formData = new FormData();
+  formData.append('file', wavBlob, 'audio.wav');
+  formData.append('model', 'gpt-4o-transcribe');
+  formData.append('response_format', 'json');
+  formData.append('language', 'ko');
+
+  const transcribeResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${cloudApiKey}` },
+    body: formData,
+  });
+
+  if (!transcribeResponse.ok) {
+    const error = await transcribeResponse.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Transcribe error: ${transcribeResponse.status}`);
+  }
+
+  const transcribeResult = await transcribeResponse.json();
+  const koreanText = transcribeResult.text || '';
+  if (!koreanText.trim()) return;
+
+  const translateResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cloudApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: currentCloudTranslateModel,
+      messages: [
+        { role: 'system', content: 'Translate the following Korean text to English. Output ONLY the English translation, nothing else.' },
+        { role: 'user', content: koreanText },
+      ],
+      temperature: 0.3,
+      max_tokens: 500,
+    }),
+  });
+
+  if (!translateResponse.ok) {
+    const error = await translateResponse.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Translate error: ${translateResponse.status}`);
+  }
+
+  const translateResult = await translateResponse.json();
+  const englishText = translateResult.choices?.[0]?.message?.content?.trim() || '';
+  const finalText = filterHallucinations(englishText);
+  if (finalText) {
+    self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
+  }
+}
+
 async function transcribeCloud(audio: Float32Array): Promise<void> {
   const energy = getAudioEnergy(audio);
   if (energy < SILENCE_THRESHOLD) return;
   if (!hasSpeechActivity(audio)) return;
 
   try {
-    const wavBlob = float32ToWav(audio, 16000);
-    const formData = new FormData();
-    formData.append('file', wavBlob, 'audio.wav');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'json');
-
-    const response = await fetch('https://api.openai.com/v1/audio/translations', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${cloudApiKey}` },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error?.message || `API error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    const finalText = filterHallucinations(result.text || '');
-    if (finalText) {
-      self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
+    if (currentCloudPipeline === 'transcribe-translate') {
+      await cloudTranscribeTranslate(audio);
+    } else {
+      await cloudDirect(audio);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Cloud transcription failed';
@@ -182,6 +250,19 @@ function hasSpeechActivity(audio: Float32Array): boolean {
   return speechFrames >= 2;
 }
 
+const HALLUCINATION_SET = new Set([
+  'thank you', 'thank you for watching', 'thanks', 'thanks for watching',
+  'please subscribe', 'subscribe', 'like and subscribe',
+  'i\'m sorry', 'sorry', 'bye', 'goodbye', 'good bye', 'bye bye', 'bye-bye',
+  'hello', 'hey', 'hi', 'okay', 'ok', 'yes', 'no', 'yeah', 'yep', 'nope',
+  'hmm', 'uh', 'ah', 'oh', 'um', 'er', 'mhm',
+  'music', 'applause', 'laughter', 'silence',
+  'cheering', 'laughing', 'clapping', 'sighing', 'coughing',
+  'see you', 'see you next time', 'have a good night', 'have a good day',
+  'good night', 'good morning', 'good evening', 'good afternoon',
+  'have a nice day', 'take care', 'you', 'the', 'i', 'it', 'a',
+]);
+
 function filterHallucinations(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -190,13 +271,12 @@ function filterHallucinations(text: string): string {
   if (/^\(.*\)$/.test(trimmed) || /^\[.*\]$/.test(trimmed)) return '';
 
   const cleaned = trimmed.replace(/[.,!?…\-:;'"]+$/, '').replace(/^[.,!?…\-:;'"]+/, '').trim().toLowerCase();
-  if (!cleaned || cleaned.length < 3) return '';
+  if (!cleaned || cleaned.length < 2) return '';
 
-  const words = cleaned.split(/\s+/);
-  if (words.length <= 4 && /^[a-z\s'\-]+$/.test(cleaned)) return '';
+  if (HALLUCINATION_SET.has(cleaned)) return '';
 
   const duplicateCount = recentOutputs.filter(o => o === cleaned).length;
-  if (duplicateCount >= 1) return '';
+  if (duplicateCount >= 2) return '';
 
   recentOutputs.push(cleaned);
   if (recentOutputs.length > MAX_RECENT) recentOutputs.shift();
@@ -221,7 +301,7 @@ async function transcribeLocal(audio: Float32Array): Promise<void> {
       chunk_length_s: 30,
       stride_length_s: 5,
       language: 'korean',
-      task: 'translate',
+      task: currentTask,
       return_timestamps: false,
       force_full_sequences: false,
     } as Record<string, unknown>);
@@ -241,8 +321,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type } = event.data;
 
   if (type === 'load') {
-    const { mode, apiKey, model, dtype } = event.data;
+    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel } = event.data;
     currentMode = mode;
+    currentTask = task || 'translate';
+    currentCloudPipeline = cloudPipeline || 'direct';
+    currentCloudModel = cloudModel || 'whisper-1';
+    currentCloudTranslateModel = cloudTranslateModel || 'gpt-4o-mini';
 
     try {
       if (mode === 'cloud') {

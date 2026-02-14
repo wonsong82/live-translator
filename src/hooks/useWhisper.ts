@@ -95,7 +95,11 @@ export function useWhisper(): UseWhisperReturn {
       mode: config.mode,
       apiKey: config.cloud.apiKey,
       model: config.local.model,
+      task: config.local.task,
       dtype: config.local.dtype,
+      cloudPipeline: config.cloud.pipeline,
+      cloudModel: config.cloud.model,
+      cloudTranslateModel: config.cloud.translateModel,
     });
 
     return () => {

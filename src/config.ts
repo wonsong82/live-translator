@@ -73,6 +73,22 @@
  * whisper-medium │ ★★★★★  │ ★★☆☆☆ │ Excellent       │ High accuracy needs
  *
  * =============================================================================
+ * CLOUD PIPELINE OPTIONS
+ * =============================================================================
+ *
+ * pipeline: 'direct'
+ *   whisper-1 → /audio/translations → English text
+ *   - Single API call, lower latency
+ *   - Cost: $0.006/min
+ *
+ * pipeline: 'transcribe-translate'
+ *   gpt-4o-transcribe → Korean text → gpt-4o-mini → English text
+ *   - Two API calls, higher latency (~2x)
+ *   - Better transcription accuracy (gpt-4o-transcribe > whisper-1)
+ *   - Better translation quality (LLM vs Whisper's built-in translate)
+ *   - Cost: ~$0.006/min (transcribe) + ~$0.001 per chunk (translate)
+ *
+ * =============================================================================
  */
 
 export const config = {
@@ -80,12 +96,15 @@ export const config = {
 
   cloud: {
     apiKey: import.meta.env.VITE_OPENAI_API_KEY as string || '',
-    model: 'whisper-1',
+    model: 'gpt-4o-transcribe' as 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe',
+    pipeline: 'transcribe-translate' as 'direct' | 'transcribe-translate',
+    translateModel: 'gpt-4.1' as string,
     recordingIntervalMs: 2000,
   },
 
   local: {
     model: 'onnx-community/whisper-small',
+    task: 'translate' as 'transcribe' | 'translate',
     dtype: 'fp16' as 'fp32' | 'fp16' | 'q8' | 'q4' | 'int8' | 'uint8' | 'auto',
     recordingIntervalMs: 2000,
   },

@@ -77,7 +77,9 @@ function App() {
       <div className="container">
         <div className="ready-container">
           <div className="backend-badge">
-            {config.mode === 'cloud' ? 'Cloud (OpenAI)' : backend === 'webgpu' ? 'WebGPU' : 'WASM'}
+            {config.mode === 'cloud'
+              ? `Cloud: ${config.cloud.pipeline === 'transcribe-translate' ? 'gpt-4o + translate' : 'whisper-1'}`
+              : backend === 'webgpu' ? 'WebGPU' : 'WASM'}
           </div>
           <div className="ready-text">Speak Korean, see English</div>
           <button className="start-button" onClick={startRecording}>
