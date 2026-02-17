@@ -227,6 +227,7 @@ async function detectSentenceBoundaries(text: string): Promise<SentenceSplit> {
 Rules:
 - A complete sentence ends with a natural sentence-ending pattern (e.g., 다, 요, 죠, 까, 네, 지, 야, etc.)
 - Maintain the EXACT original text — do not modify, correct, or rephrase anything
+- Do not include puncuation marks in the response
 - The "pending" field should contain text that is not yet a complete sentence
 - If the entire text is incomplete, return it all as "pending"
 - Preserve chronological order
