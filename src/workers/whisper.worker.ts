@@ -265,10 +265,14 @@ Respond with ONLY valid JSON: {"sentences": ["완전한 문장1", "완전한 문
   }
 }
 
-async function detectAndProofread(text: string, context: string[]): Promise<SentenceSplit> {
+async function proofreadSentences(newSentences: string[], context: string[]): Promise<string[]> {
+  if (newSentences.length === 0) return [];
+
   const contextBlock = context.length > 0
     ? context.map((s, i) => `${i + 1}. ${s}`).join('\n')
     : '(no previous context)';
+
+  const newBlock = newSentences.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -281,26 +285,22 @@ async function detectAndProofread(text: string, context: string[]): Promise<Sent
       messages: [
         {
           role: 'system',
-          content: `You are a Korean speech transcription proofreader and sentence boundary detector. Given raw Korean text from live speech transcription and context from previous sentences, do TWO things:
-
-1. Split the text into complete sentences and any remaining incomplete fragment
-2. Check the NEW text for mis-transcriptions — if a word does not make sense given the conversational context, correct it to the most likely intended Korean word
+          content: `You are a Korean speech transcription proofreader. You receive newly transcribed Korean sentences and previous context sentences. Your job is to check the NEW sentences for mis-transcriptions and correct them.
 
 Rules:
-- A complete sentence ends with a natural Korean sentence-ending pattern (다, 요, 죠, 까, 네, 지, 야, etc.)
-- Only correct words that are clearly wrong given context — do NOT rephrase or rewrite
+- Only correct words that are clearly wrong given the conversational context
+- Do NOT rephrase, rewrite, or change sentence structure
+- Do NOT add or remove punctuation marks
 - Preserve the speaker's original meaning, tone, and style
-- Do not add punctuation marks
-- The "pending" field contains text that is not yet a complete sentence — do NOT correct pending text
-- If the entire text is incomplete, return it all as "pending"
-- Preserve chronological order
+- If a sentence looks correct, return it unchanged
+- Return exactly the same number of sentences as the input, in the same order
 
 Previous sentences for context:
 ${contextBlock}
 
-Respond with ONLY valid JSON: {"sentences": ["교정된 문장1", "교정된 문장2"], "pending": "미완성 부분"}`
+Respond with ONLY valid JSON: {"corrected": ["교정된 문장1", "교정된 문장2"]}`
         },
-        { role: 'user', content: text },
+        { role: 'user', content: `New sentences to proofread:\n${newBlock}` },
       ],
       temperature: 0,
       max_tokens: 1500,
@@ -317,13 +317,11 @@ Respond with ONLY valid JSON: {"sentences": ["교정된 문장1", "교정된 문
   const content = result.choices?.[0]?.message?.content?.trim() || '{}';
 
   try {
-    const parsed = JSON.parse(content) as { sentences?: string[]; pending?: string };
-    return {
-      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
-      pending: typeof parsed.pending === 'string' ? parsed.pending : '',
-    };
+    const parsed = JSON.parse(content) as { corrected?: string[] };
+    const corrected = Array.isArray(parsed.corrected) ? parsed.corrected : [];
+    return corrected.length === newSentences.length ? corrected : newSentences;
   } catch {
-    return { sentences: [], pending: text };
+    return newSentences;
   }
 }
 
@@ -352,34 +350,10 @@ async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
     } satisfies WorkerResponse);
   }
 
-  let sentences: string[];
-  let pending: string;
-
-  if (proofReadEnabled) {
-    try {
-      const result = await detectAndProofread(sentenceBuffer, contextBuffer);
-      sentences = result.sentences;
-      pending = result.pending;
-    } catch {
-      const fallback = await detectSentenceBoundaries(sentenceBuffer);
-      sentences = fallback.sentences;
-      pending = fallback.pending;
-    }
-  } else {
-    const result = await detectSentenceBoundaries(sentenceBuffer);
-    sentences = result.sentences;
-    pending = result.pending;
-  }
+  const { sentences, pending } = await detectSentenceBoundaries(sentenceBuffer);
 
   if (sentences.length > 0) {
     completedSentences.push(...sentences);
-
-    if (proofReadEnabled) {
-      contextBuffer.push(...sentences);
-      if (contextBuffer.length > proofReadContextSize) {
-        contextBuffer = contextBuffer.slice(-proofReadContextSize);
-      }
-    }
   }
   sentenceBuffer = pending;
 
@@ -389,7 +363,34 @@ async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
     pending: sentenceBuffer,
   } satisfies WorkerResponse);
 
-  for (const sentence of sentences) {
+  let sentencesToTranslate = sentences;
+
+  if (proofReadEnabled && sentences.length > 0) {
+    try {
+      const corrected = await proofreadSentences(sentences, contextBuffer);
+      const insertIndex = completedSentences.length - sentences.length;
+      for (let i = 0; i < corrected.length; i++) {
+        completedSentences[insertIndex + i] = corrected[i];
+      }
+
+      self.postMessage({
+        type: 'transcript-update',
+        sentences: completedSentences.slice(),
+        pending: sentenceBuffer,
+      } satisfies WorkerResponse);
+
+      sentencesToTranslate = corrected;
+    } catch {
+      // Proofread failed — use raw sentences, don't block translation
+    }
+
+    contextBuffer.push(...sentencesToTranslate);
+    if (contextBuffer.length > proofReadContextSize) {
+      contextBuffer = contextBuffer.slice(-proofReadContextSize);
+    }
+  }
+
+  for (const sentence of sentencesToTranslate) {
     const englishText = await translateKoreanToEnglish(sentence);
     const filtered = filterHallucinations(englishText);
     if (filtered) {
