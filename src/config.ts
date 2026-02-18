@@ -96,10 +96,11 @@ export const config = {
 
   cloud: {
     apiKey: import.meta.env.VITE_OPENAI_API_KEY as string || '',
-    model: 'whisper-1' as 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe',
+    model: 'whisper-1' as string,
+    transcribeModel: 'gpt-4o-transcribe' as string,
     pipeline: 'transcribe-translate' as 'direct' | 'transcribe-translate',
     translateModel: 'gpt-4.1' as string,
-    recordingIntervalMs: 1000,
+    recordingIntervalMs: 1500,
 
     /**
      * Sentence-buffered mode (only works with 'transcribe-translate' pipeline)
@@ -131,7 +132,7 @@ export const config = {
      * - Uses standalone sentence detection (no correction)
      */
     proofReading: true,
-    proofReadModel: 'gpt-4.1-mini' as string,
+    proofReadModel: 'gpt-4.1' as string,
     proofReadContextSize: 20,
   },
 

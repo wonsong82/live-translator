@@ -10,7 +10,7 @@ type Task = 'transcribe' | 'translate';
 type CloudPipeline = 'direct' | 'transcribe-translate';
 
 type WorkerMessage =
-  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string; sentenceBuffered?: boolean; sentenceModel?: string; proofReading?: boolean; proofReadModel?: string; proofReadContextSize?: number }
+  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranscribeModel?: string; cloudTranslateModel?: string; sentenceBuffered?: boolean; sentenceModel?: string; proofReading?: boolean; proofReadModel?: string; proofReadContextSize?: number }
   | { type: 'transcribe'; audio: Float32Array };
 
 type WorkerResponse =
@@ -27,6 +27,7 @@ let currentMode: 'cloud' | 'local' = 'local';
 let currentTask: Task = 'translate';
 let currentCloudPipeline: CloudPipeline = 'direct';
 let currentCloudModel = 'whisper-1';
+let currentCloudTranscribeModel = 'gpt-4o-transcribe';
 let currentCloudTranslateModel = 'gpt-4o-mini';
 let cloudApiKey = '';
 let sentenceBufferedEnabled = false;
@@ -163,7 +164,7 @@ async function transcribeAudio(audio: Float32Array): Promise<string> {
   const wavBlob = float32ToWav(audio, 16000);
   const formData = new FormData();
   formData.append('file', wavBlob, 'audio.wav');
-  formData.append('model', currentCloudModel);
+  formData.append('model', currentCloudTranscribeModel);
   formData.append('response_format', 'json');
   formData.append('language', 'ko');
 
@@ -521,11 +522,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type } = event.data;
 
   if (type === 'load') {
-    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel, sentenceBuffered, sentenceModel, proofReading, proofReadModel, proofReadContextSize: ctxSize } = event.data;
+    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranscribeModel, cloudTranslateModel, sentenceBuffered, sentenceModel, proofReading, proofReadModel, proofReadContextSize: ctxSize } = event.data;
     currentMode = mode;
     currentTask = task || 'translate';
     currentCloudPipeline = cloudPipeline || 'direct';
     currentCloudModel = cloudModel || 'whisper-1';
+    currentCloudTranscribeModel = cloudTranscribeModel || 'gpt-4o-transcribe';
     currentCloudTranslateModel = cloudTranslateModel || 'gpt-4o-mini';
     sentenceBufferedEnabled = sentenceBuffered || false;
     sentenceModelName = sentenceModel || 'gpt-4.1-mini';

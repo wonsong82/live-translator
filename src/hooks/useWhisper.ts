@@ -125,6 +125,7 @@ export function useWhisper(): UseWhisperReturn {
       dtype: config.local.dtype,
       cloudPipeline: config.cloud.pipeline,
       cloudModel: config.cloud.model,
+      cloudTranscribeModel: config.cloud.transcribeModel,
       cloudTranslateModel: config.cloud.translateModel,
       sentenceBuffered: isSentenceBuffered,
       sentenceModel: config.cloud.sentenceModel,
