@@ -99,7 +99,7 @@ export const config = {
     model: 'whisper-1' as 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe',
     pipeline: 'transcribe-translate' as 'direct' | 'transcribe-translate',
     translateModel: 'gpt-4.1' as string,
-    recordingIntervalMs: 2000,
+    recordingIntervalMs: 1000,
 
     /**
      * Sentence-buffered mode (only works with 'transcribe-translate' pipeline)
@@ -117,6 +117,22 @@ export const config = {
      */
     sentenceBuffered: true,
     sentenceModel: 'gpt-4.1' as string,
+
+    /**
+     * Proofreading mode (only works with sentenceBuffered enabled)
+     *
+     * When enabled:
+     * - Combines sentence detection and proofreading into a single LLM call
+     * - Maintains a context buffer of recent sentences (default 20)
+     * - Uses context to detect and correct mis-transcriptions
+     * - Shows raw text immediately, then replaces with corrected version
+     *
+     * When disabled:
+     * - Uses standalone sentence detection (no correction)
+     */
+    proofReading: true,
+    proofReadModel: 'gpt-4.1-mini' as string,
+    proofReadContextSize: 20,
   },
 
   local: {

@@ -13,6 +13,10 @@ const isSentenceBuffered =
   config.cloud.pipeline === 'transcribe-translate' &&
   config.cloud.sentenceBuffered;
 
+const isProofReading =
+  isSentenceBuffered &&
+  config.cloud.proofReading;
+
 const RECORDING_DURATION_MS = config.mode === 'cloud'
   ? config.cloud.recordingIntervalMs
   : config.local.recordingIntervalMs;
@@ -124,6 +128,9 @@ export function useWhisper(): UseWhisperReturn {
       cloudTranslateModel: config.cloud.translateModel,
       sentenceBuffered: isSentenceBuffered,
       sentenceModel: config.cloud.sentenceModel,
+      proofReading: isProofReading,
+      proofReadModel: config.cloud.proofReadModel,
+      proofReadContextSize: config.cloud.proofReadContextSize,
     });
 
     return () => {

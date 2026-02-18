@@ -10,7 +10,7 @@ type Task = 'transcribe' | 'translate';
 type CloudPipeline = 'direct' | 'transcribe-translate';
 
 type WorkerMessage =
-  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string; sentenceBuffered?: boolean; sentenceModel?: string }
+  | { type: 'load'; mode: 'cloud' | 'local'; apiKey?: string; model?: string; task?: Task; dtype?: DType; cloudPipeline?: CloudPipeline; cloudModel?: string; cloudTranslateModel?: string; sentenceBuffered?: boolean; sentenceModel?: string; proofReading?: boolean; proofReadModel?: string; proofReadContextSize?: number }
   | { type: 'transcribe'; audio: Float32Array };
 
 type WorkerResponse =
@@ -31,9 +31,13 @@ let currentCloudTranslateModel = 'gpt-4o-mini';
 let cloudApiKey = '';
 let sentenceBufferedEnabled = false;
 let sentenceModelName = 'gpt-4.1-mini';
+let proofReadEnabled = false;
+let proofReadModelName = 'gpt-4.1-mini';
+let proofReadContextSize = 20;
 
 let sentenceBuffer = '';
 let completedSentences: string[] = [];
+let contextBuffer: string[] = [];
 
 async function detectWebGPU(): Promise<boolean> {
   if (!navigator.gpu) return false;
@@ -261,6 +265,68 @@ Respond with ONLY valid JSON: {"sentences": ["완전한 문장1", "완전한 문
   }
 }
 
+async function detectAndProofread(text: string, context: string[]): Promise<SentenceSplit> {
+  const contextBlock = context.length > 0
+    ? context.map((s, i) => `${i + 1}. ${s}`).join('\n')
+    : '(no previous context)';
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cloudApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: proofReadModelName,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a Korean speech transcription proofreader and sentence boundary detector. Given raw Korean text from live speech transcription and context from previous sentences, do TWO things:
+
+1. Split the text into complete sentences and any remaining incomplete fragment
+2. Check the NEW text for mis-transcriptions — if a word does not make sense given the conversational context, correct it to the most likely intended Korean word
+
+Rules:
+- A complete sentence ends with a natural Korean sentence-ending pattern (다, 요, 죠, 까, 네, 지, 야, etc.)
+- Only correct words that are clearly wrong given context — do NOT rephrase or rewrite
+- Preserve the speaker's original meaning, tone, and style
+- Do not add punctuation marks
+- The "pending" field contains text that is not yet a complete sentence — do NOT correct pending text
+- If the entire text is incomplete, return it all as "pending"
+- Preserve chronological order
+
+Previous sentences for context:
+${contextBlock}
+
+Respond with ONLY valid JSON: {"sentences": ["교정된 문장1", "교정된 문장2"], "pending": "미완성 부분"}`
+        },
+        { role: 'user', content: text },
+      ],
+      temperature: 0,
+      max_tokens: 1500,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Proofread error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  const content = result.choices?.[0]?.message?.content?.trim() || '{}';
+
+  try {
+    const parsed = JSON.parse(content) as { sentences?: string[]; pending?: string };
+    return {
+      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+      pending: typeof parsed.pending === 'string' ? parsed.pending : '',
+    };
+  } catch {
+    return { sentences: [], pending: text };
+  }
+}
+
 async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
   const koreanText = await transcribeAudioToKorean(audio);
   if (!koreanText.trim()) return;
@@ -278,10 +344,42 @@ async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
 
   sentenceBuffer = sentenceBuffer ? sentenceBuffer + ' ' + koreanText.trim() : koreanText.trim();
 
-  const { sentences, pending } = await detectSentenceBoundaries(sentenceBuffer);
+  if (proofReadEnabled) {
+    self.postMessage({
+      type: 'transcript-update',
+      sentences: completedSentences.slice(),
+      pending: sentenceBuffer,
+    } satisfies WorkerResponse);
+  }
+
+  let sentences: string[];
+  let pending: string;
+
+  if (proofReadEnabled) {
+    try {
+      const result = await detectAndProofread(sentenceBuffer, contextBuffer);
+      sentences = result.sentences;
+      pending = result.pending;
+    } catch {
+      const fallback = await detectSentenceBoundaries(sentenceBuffer);
+      sentences = fallback.sentences;
+      pending = fallback.pending;
+    }
+  } else {
+    const result = await detectSentenceBoundaries(sentenceBuffer);
+    sentences = result.sentences;
+    pending = result.pending;
+  }
 
   if (sentences.length > 0) {
     completedSentences.push(...sentences);
+
+    if (proofReadEnabled) {
+      contextBuffer.push(...sentences);
+      if (contextBuffer.length > proofReadContextSize) {
+        contextBuffer = contextBuffer.slice(-proofReadContextSize);
+      }
+    }
   }
   sentenceBuffer = pending;
 
@@ -422,7 +520,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const { type } = event.data;
 
   if (type === 'load') {
-    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel, sentenceBuffered, sentenceModel } = event.data;
+    const { mode, apiKey, model, task, dtype, cloudPipeline, cloudModel, cloudTranslateModel, sentenceBuffered, sentenceModel, proofReading, proofReadModel, proofReadContextSize: ctxSize } = event.data;
     currentMode = mode;
     currentTask = task || 'translate';
     currentCloudPipeline = cloudPipeline || 'direct';
@@ -430,8 +528,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     currentCloudTranslateModel = cloudTranslateModel || 'gpt-4o-mini';
     sentenceBufferedEnabled = sentenceBuffered || false;
     sentenceModelName = sentenceModel || 'gpt-4.1-mini';
+    proofReadEnabled = proofReading || false;
+    proofReadModelName = proofReadModel || 'gpt-4.1-mini';
+    proofReadContextSize = ctxSize || 20;
     sentenceBuffer = '';
     completedSentences = [];
+    contextBuffer = [];
 
     try {
       if (mode === 'cloud') {
