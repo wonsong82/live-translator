@@ -159,11 +159,11 @@ async function cloudDirect(audio: Float32Array): Promise<void> {
   }
 }
 
-async function transcribeAudioToKorean(audio: Float32Array): Promise<string> {
+async function transcribeAudio(audio: Float32Array): Promise<string> {
   const wavBlob = float32ToWav(audio, 16000);
   const formData = new FormData();
   formData.append('file', wavBlob, 'audio.wav');
-  formData.append('model', 'gpt-4o-transcribe');
+  formData.append('model', currentCloudModel);
   formData.append('response_format', 'json');
   formData.append('language', 'ko');
 
@@ -326,7 +326,7 @@ Respond with ONLY valid JSON: {"corrected": ["교정된 문장1", "교정된 문
 }
 
 async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
-  const koreanText = await transcribeAudioToKorean(audio);
+  const koreanText = await transcribeAudio(audio);
   if (!koreanText.trim()) return;
 
   const englishText = await translateKoreanToEnglish(koreanText);
@@ -337,7 +337,7 @@ async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
 }
 
 async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
-  const koreanText = await transcribeAudioToKorean(audio);
+  const koreanText = await transcribeAudio(audio);
   if (!koreanText.trim()) return;
 
   sentenceBuffer = sentenceBuffer ? sentenceBuffer + ' ' + koreanText.trim() : koreanText.trim();
