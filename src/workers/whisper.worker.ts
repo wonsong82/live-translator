@@ -174,7 +174,7 @@ async function transcribeAudio(audio: Float32Array): Promise<string> {
   return result.text || '';
 }
 
-async function translateKoreanToEnglish(koreanText: string): Promise<string> {
+async function translate(text: string): Promise<string> {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -185,7 +185,7 @@ async function translateKoreanToEnglish(koreanText: string): Promise<string> {
       model: config.cloud.translateModel,
       messages: [
         { role: 'system', content: 'Translate the following Korean text to English. Output ONLY the English translation, nothing else.' },
-        { role: 'user', content: koreanText },
+        { role: 'user', content: text },
       ],
       temperature: 0.3,
       max_tokens: 500,
@@ -321,7 +321,7 @@ async function cloudTranscribeTranslate(audio: Float32Array): Promise<void> {
   const koreanText = await transcribeAudio(audio);
   if (!koreanText.trim()) return;
 
-  const englishText = await translateKoreanToEnglish(koreanText);
+  const englishText = await translate(koreanText);
   const finalText = filterHallucinations(englishText);
   if (finalText) {
     self.postMessage({ type: 'final', text: finalText } satisfies WorkerResponse);
@@ -383,7 +383,7 @@ async function cloudSentenceBuffered(audio: Float32Array): Promise<void> {
   }
 
   for (const sentence of sentencesToTranslate) {
-    const englishText = await translateKoreanToEnglish(sentence);
+    const englishText = await translate(sentence);
     const filtered = filterHallucinations(englishText);
     if (filtered) {
       self.postMessage({ type: 'translation-update', text: filtered } satisfies WorkerResponse);
