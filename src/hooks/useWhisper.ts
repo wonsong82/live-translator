@@ -13,10 +13,6 @@ const isSentenceBuffered =
   config.cloud.pipeline === 'transcribe-translate' &&
   config.cloud.sentenceBuffered;
 
-const isProofReading =
-  isSentenceBuffered &&
-  config.cloud.proofReading;
-
 const RECORDING_DURATION_MS = config.mode === 'cloud'
   ? config.cloud.recordingIntervalMs
   : config.local.recordingIntervalMs;
@@ -116,23 +112,7 @@ export function useWhisper(): UseWhisperReturn {
     };
 
     workerRef.current = worker;
-    worker.postMessage({
-      type: 'load',
-      mode: config.mode,
-      apiKey: config.cloud.apiKey,
-      model: config.local.model,
-      task: config.local.task,
-      dtype: config.local.dtype,
-      cloudPipeline: config.cloud.pipeline,
-      cloudModel: config.cloud.model,
-      cloudTranscribeModel: config.cloud.transcribeModel,
-      cloudTranslateModel: config.cloud.translateModel,
-      sentenceBuffered: isSentenceBuffered,
-      sentenceModel: config.cloud.sentenceModel,
-      proofReading: isProofReading,
-      proofReadModel: config.cloud.proofReadModel,
-      proofReadContextSize: config.cloud.proofReadContextSize,
-    });
+    worker.postMessage({ type: 'load' });
 
     return () => {
       worker.terminate();
