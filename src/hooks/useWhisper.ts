@@ -112,19 +112,7 @@ export function useWhisper(): UseWhisperReturn {
     };
 
     workerRef.current = worker;
-    worker.postMessage({
-      type: 'load',
-      mode: config.mode,
-      apiKey: config.cloud.apiKey,
-      model: config.local.model,
-      task: config.local.task,
-      dtype: config.local.dtype,
-      cloudPipeline: config.cloud.pipeline,
-      cloudModel: config.cloud.model,
-      cloudTranslateModel: config.cloud.translateModel,
-      sentenceBuffered: isSentenceBuffered,
-      sentenceModel: config.cloud.sentenceModel,
-    });
+    worker.postMessage({ type: 'load' });
 
     return () => {
       worker.terminate();

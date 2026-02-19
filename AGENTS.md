@@ -58,6 +58,9 @@ Key constraint: Everything runs in the browser. No server, no API calls for tran
 - No JSDoc unless truly necessary for complex APIs
 - No "what changed" comments (that's what git is for)
 
+### Documentation
+- When diagrams are needed, always use Mermaid format
+
 ---
 
 ## Critical Constraints
@@ -71,6 +74,7 @@ Key constraint: Everything runs in the browser. No server, no API calls for tran
 - Add npm packages without justification
 
 ### ALWAYS
+- Auto commit after changes are made, once proper testing and bug fixes are complete
 - Run `npm run build` before committing
 - Keep the UI minimal and focused
 - Process audio in Web Worker (never block main thread)
@@ -82,8 +86,8 @@ Key constraint: Everything runs in the browser. No server, no API calls for tran
 
 ### Adding a New Feature
 
-1. Check TRD.md "Future Enhancements" section first
-2. Update TRD.md if architectural changes needed
+1. Check docs/TRD.md "Future Enhancements" section first
+2. Update docs/TRD.md if architectural changes needed
 3. Implement in appropriate file (see File Map)
 4. Verify: `npm run build` passes
 5. Update README.md if user-facing
